@@ -1,0 +1,69 @@
+# Nome do Workflow
+name: Hackaton Front-End Pipeline
+
+# Evento que irá acionar a pipeline
+on: 
+  push:
+    branches:
+      - main
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x]
+  
+    steps:
+      - name: Download do Repositório
+        uses: actions/checkout@v3       # https://github.com/actions/checkout
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1  # https://github.com/actions/setup-python
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Unit Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Docker Login
+        run: | 
+          echo '${{ secrets.GOOGLE_CREDENTIALS }}' > key.json
+          cat key.json | docker login -u _json_key --password-stdin '${{ secrets.GOOGLE_ARTIFACT }}'
+
+      - name: Build & Push Image
+        run: | 
+          docker build -t ${{ secrets.GOOGLE_ARTIFACT }}/${{ secrets.GOOGLE_PROJECT_ID }}/${{ secrets.GOOGLE_REPONAME }}/${{ secrets.GOOGLE_MYAPP }}:latest .
+          docker push ${{ secrets.GOOGLE_ARTIFACT }}/${{ secrets.GOOGLE_PROJECT_ID }}/${{ secrets.GOOGLE_REPONAME }}/${{ secrets.GOOGLE_MYAPP }}:latest
+
+  Deploy-Production:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3 # https://github.com/actions/checkout
+
+      - name: Auth GCP
+        uses: 'google-github-actions/auth@v1' # https://github.com/google-github-actions/auth
+        with:
+          credentials_json: '${{ secrets.GOOGLE_CREDENTIALS }}'
+
+      - name: Cloud Run Deploy - Production
+        id: prod-deploy
+        uses: 'google-github-actions/deploy-cloudrun@v1'  # https://github.com/marketplace/actions/deploy-to-cloud-run
+        with:
+          service: ${{ secrets.GOOGLE_MYAPP }}-prod
+          image:   ${{ secrets.GOOGLE_ARTIFACT }}/${{ secrets.GOOGLE_PROJECT_ID }}/${{ secrets.GOOGLE_REPONAME }}/${{ secrets.GOOGLE_MYAPP }}:latest
+          flags: '--allow-unauthenticated'
+
+      - name: Test Prod
+        run: 'curl "${{ steps.prod-deploy.outputs.url }}"'
