@@ -1,1 +1,1 @@
-# hackathon-app
+# hackatoon-frontend-app
